@@ -1,0 +1,1675 @@
+---
+title: "Predict 422 Critical Thinking Group 1 - Final Group Project"
+output: html_notebook
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*.
+
+Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Ctrl+Alt+I*.
+
+When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Ctrl+Shift+K* to preview the HTML file).
+
+#### PROJECT STARTS HERE ####
+
+Read .csv file and load libraries
+
+```{r Loading data and libraries}
+#please don't delete these comments for quick code exchange
+#data = read.csv("C:\\Users\\Justin\\OneDrive\\Dokumente\\2017\\MSPA\\Predict 422\\Final Group Project\\charity.csv")
+#data = read.csv("C:\\Users\\Justin\\OneDrive\\Dokumente\\2017\\MSPA\\Predict 422\\Final Group Project\\charity.csv")
+data <- read.csv(file.choose()) #adding so we can load the CSV file from diffrent users
+
+library(reshape2)
+library(ggplot2)
+library(e1071)
+library(xgboost)
+library(pROC)
+library(MASS)
+library(pROC)
+library(class)
+library(tree)
+library(randomForest)
+library(KODAMA)
+library(caret)
+library(caretEnsemble)
+library(caTools)
+library(earth)
+library(mda)
+library(hda)
+library(boot)
+library(leaps)
+library(glmnet)
+library(pls)
+library(plyr)
+library(monomvn)
+library(elasticnet)
+
+#library(mlbench)
+#library(nnet)
+#library(ranger)
+#library(fastAdaboost)
+#library(deepboost)
+#library(rotationForest)
+#library(wsrf)
+#library(klaR)
+#library(frbs)
+#library(relaxo)
+#library(rpart)
+#library(Cubist)
+#library(frbs)
+#library(h2o)
+#library(lars)
+#library(dplyr)
+```
+I have added the EDA here.  It is long... but I included some comments at the end.
+```{r EDA}
+train = data[data$part=="train",]
+test = data[data$part=="test",]
+valid = data[data$part=="valid",]
+
+#EDA
+#display 6 rows of data
+head(data)
+head(train)
+head(test)
+head(valid)
+#check dimensions of data
+dim(data) #8009x24
+dim(train) #3984x24
+dim(test) #2007x24
+dim(valid) #2018x24
+#understand the types of features
+str(data) #23 integer variables, 1 numeric (agif) and 1 factor (part)
+str(train)
+str(test)
+str(valid)
+#summary statistics of each variable
+summary(data)
+summary(train)
+summary(test)
+summary(valid)
+
+#Graphs
+#Histograms
+ggplot(data = melt(train), mapping = aes(x = value)) + 
+  geom_histogram(bins = 20) + facet_wrap(~variable, scales = 'free_x')
+#Only discuss continuous variables:
+#avhv, incm, inca, agif: skew left, potential outliers
+#plow: strong left skew, definitely not normal
+#nrpo: looks normal, but maybe uniform
+#tgif, lgif, rgif: left skew, high kurtosis, possible normal
+#tdon: two clusters, potential outliers
+#tlag: left skew, not normal, potential outliers
+
+#avhv variable
+par(mfrow=c(1,2))
+hist(train$avhv, main="avhv")
+hist(log(train$avhv), main="log avhv") #creates normal distribution
+#plow variable
+par(mfrow=c(2,2))
+hist(train$plow, main="plow")
+hist(log(train$plow), main="log plow") #more normal, but now skewed right
+hist(sqrt(train$plow), main="sqrt plow") #more normal, but slight skewed left
+hist(cos(train$plow), main="cos plow") #uniform distribution
+#npro variable
+par(mfrow=c(2,2))
+hist(train$npro, main="npro")
+hist(log(train$npro), main="log npro") #strong right skew
+hist(sqrt(train$npro), main="sqrt npro") #more normal with slight skew
+#tgif variable
+par(mfrow=c(1,2))
+hist(train$tgif, main="tgif")
+hist(log(train$tgif), main="log tgif") #more normal, slight skew
+#tdon variable
+par(mfrow=c(2,2))
+hist(train$tdon, main="tdon")
+hist(log(train$tdon), main="log tdon") #more normal, shifted skew to right
+hist(sqrt(train$tdon), main="sqrt tdon") #most normal yet, high kurtosis
+#tlag variable
+par(mfrow=c(2,2))
+hist(train$tlag, main="tlag")
+hist(log(train$tlag), main="log tlag") #more normal, but high kurtosis and outliers
+hist(sqrt(train$tlag), main="sqrt tlag") #skewed right
+hist(log10(train$tlag), main="log10 tlag") #similar to ln plot
+
+#Boxplots
+train.m <- melt(train)
+train.m2 <- train.m[which(train.m$variable!='ID'),]
+ggplot(data = train.m2, aes(x=variable, y=value)) + geom_boxplot(aes(fill=part))
+#variables with noted outliers: avhv, incm, inca, plow, npro, tgif, lgif, rgif, agif
+
+#Scatterplots
+par(mfrow=c(2,2))
+plot(train$reg1, main="reg1") #categorical variable (2 categories)
+plot(train$reg2, main="reg2") #categorical variable (2 categories)
+plot(train$reg3, main="reg3") #categorical variable (2 categories)
+plot(train$reg4, main="reg4") #categorical variable (2 categories)
+plot(train$home, main="home") #categorical variable (2 categories)
+plot(train$chld, main="child") #categorical variable (5 categories)
+plot(train$hinc, main="hinc") #categorical variable (7 categories)
+plot(train$genf, main="genf") #categorical variable (2 categories)
+plot(train$wrat, main="wrat") #categorical variable (10 categories)
+plot(train$avhv, main="avhv") #uniform appearance with high outliers, nonlinear
+plot(train$incm, main="incm") #uniform appearance with high outliers, nonlinear
+plot(train$inca, main="inca") #uniform appearance with high outliers, nonlinear
+plot(train$plow, main="plow") #uniform appearance with some high outliers, increased randomness
+plot(train$npro, main="nrpo") #random distribution
+plot(train$tgif, main="tgif") #uniform appearance with some significant high outliers
+plot(train$lgif, main="lgif") #uniform appearance with some significant high outliers
+plot(train$rgif, main="rgif") #uniform appearance with high outliers, nonlinear
+plot(train$tdon, main="tdon") #central cluster with high and low deviances
+plot(train$tlag, main="tlag") #uniform appearance with high outliers and some low outliers, nonlinear
+plot(train$agif, main="agif") #uniform appearance with high outliers, nonlinear
+
+```
+Overall, most of the variables are categorical and will require some sort of dummy coding to utilize.  Of the continuous variables, most are not normal and will require transformation to become normal, if desired.  Here is a summary of the variables and the transformations that I considered (individually):
+avhv: log
+plow: log
+npro: not great... but sqrt
+tgif: log
+tdon: sqrt
+tlag: log
+
+I hope that this helps.  Let me know what else I can do for EDA.
+```{r Transformations}
+#Skewness
+train.s <- train[,!(colnames(train) %in% c("ID","donr","damt","part"))]
+train.skew <- apply(train.s,2,skewness,na.rm=TRUE)
+
+#Create data frame with variable names and skewness.  Add in transformations and new skewness.
+#variable transformations
+log.avhv <- log(train$avhv)
+sqrt.plow <- sqrt(train$plow)
+sqrt.npro <- sqrt(train$npro)
+log.tgif <- log(train$tgif)
+sqrt.tdon <- sqrt(train$tdon)
+log.tlag <- sqrt(train$tlag)
+#Determine skewness of each variable and transformation
+train.t <- train[,(colnames(train) %in% c("avhv","plow","npro","tgif","tdon","tlag"))]
+train.t.skew <- apply(train.t,2,skewness,na.rm=TRUE)
+train.x <- data.frame(log.avhv,sqrt.plow,sqrt.npro,log.tgif,sqrt.tdon,log.tlag)
+train.x.skew <- apply(train.x,2,skewness,na.rm=TRUE)
+#Create variables for each dataframe column
+transform <- colnames(train.x)
+#Create dataframe of the features, transforamtions, and skewness
+transform.train <- data.frame(skew=train.t.skew, transformation=transform, newskew=train.x.skew)
+print(transform.train)
+```
+This produces the desired data frame, I think.  Let me know if you would like it to change.  Of note, the log transformation for plow isn't the right call because of the zero values.  the sqrt is a better transformation.
+
+I also did some Pearson Correlation Coefficients for the variables... its not exactly concise code, but it works, I think.
+```{r Correlations}
+#correlations
+cor(train$reg1,train$donr) #0.0565
+cor(train$reg2,train$donr) #0.2471
+cor(train$reg3,train$donr) #-0.1043
+cor(train$reg4,train$donr) #-0.1263
+cor(train$home,train$donr) #0.2890
+cor(train$chld,train$donr) #-0.5308
+cor(train$hinc,train$donr) #0.0277
+cor(train$genf,train$donr) #-0.0173
+cor(train$wrat,train$donr) #0.2493
+cor(train$avhv,train$donr) #0.1190
+cor(log(train$avhv),train$donr) #0.1246
+cor(train$incm,train$donr) #0.1580
+cor(train$inca,train$donr) #0.1394
+cor(train$plow,train$donr) #-0.1433
+cor(sqrt(train$plow), train$donr) #-0.1494
+cor(train$npro,train$donr) #0.1357
+cor(train$tgif,train$donr) #0.1159
+cor(train$lgif,train$donr) #0.0257
+cor(train$rgif,train$donr) #0.0149
+cor(train$tdon,train$donr) #-0.0963
+cor(sqrt(train$tdon), train$donr) #-0.0795
+cor(train$tlag,train$donr) #-0.1411
+cor(log(train$tlag), train$donr) #-0.1445
+cor(train$agif,train$donr) #0.0095
+#agif has the lowest correlation at near zero... 0.0095.
+```
+Based on the project instructions, we might consider removing agif, at least for the donr portion?  Just a thought.  I can rerun these for the damt too, if that helps.  Also, if you want me to create a data frame, just let me know.
+
+Report missing values per column
+```{r Missing values}
+colSums(is.na(data))
+```
+Only the test data has missing values for the two target variables: respond (0/1) and donation amount in USD (int value).
+Pretty complete data!
+
+We should go a general 2-step approach here. No. 1 would be to get the best possible model (I suggest AUC as a metric) for the binary prediction of the question of whether being a donator or not. No. 2 would involve looking at the donators only and create a model for the predicted donation amount.
+
+I'm setting up a XGBoost model for step 1 right now (Actually I like LightGBM more but this should be agreed by a majority of us since the installation is tricky.)
+
+It follows a grid search to find the best XGBoost parameters.
+```{r XGBoost grid search}
+#WARNING: This chunk requires quite some time!
+train_index = data$part == 'train'
+train_X <- data[train_index,]
+train_y = train_X$donr
+train_X <- subset(train_X, select = -c(ID, donr,damt,part) )
+
+validation_index = data$part == 'valid'
+validation_X <- data[validation_index,]
+validation_y = validation_X$donr
+validation_X <- subset(validation_X, select = -c(ID, donr,damt,part) )
+
+train_X = data.matrix(train_X)
+validation_X = data.matrix(validation_X)
+
+
+searchGridSubCol <- expand.grid(subsample = c(0.5, 0.6, 1),
+                                colsample_bytree = c(0.5, 0.6, 0.8, 1),
+                                max_depth = c(2, 3, 4),
+                                min_child = c(0.5, 0.75, 1, 2),
+                                eta = c(0.001, 0.01, 0.1, 1)
+)
+
+# uncommented because of long run time
+# hyperparameters <- apply(searchGridSubCol, 1, function(parameterList){
+# 
+#   #Extract Parameters to test
+#   currentSubsampleRate <- parameterList[["subsample"]]
+#   currentColsampleRate <- parameterList[["colsample_bytree"]]
+#   currentDepth <- parameterList[["max_depth"]]
+#   currentEta <- parameterList[["eta"]]
+#   currentMinChild <- parameterList[["min_child"]]
+# 
+# 
+#   cv.res <- xgb.cv(data = train_X, label = train_y, max.depth = currentDepth, eta = currentEta, nfold = 10, nrounds = 1000, objective = "binary:logistic", early_stopping_rounds=30, metrics='auc', subsample = currentSubsampleRate, colsample_bytree = currentColsampleRate, min_child_weight = currentMinChild, verbose=0)
+# 
+#   bstSparse <- xgboost(data = train_X, label = train_y, max.depth = currentDepth, eta = currentEta, nthread = 2, nround = cv.res$best_iteration, objective = "binary:logistic", metrics='auc', subsample = currentSubsampleRate, colsample_bytree = currentColsampleRate, min_child_weight = currentMinChild, verbose=0)
+# 
+#   preds_proba = predict(bstSparse, validation_X)
+#   preds <- as.numeric(preds_proba > 0.5)
+# 
+#   table(preds, validation_y)
+# 
+#   auc = auc(validation_y, preds_proba)
+# 
+#   #plot.roc(data$class, data$scored.class)
+#   print(paste("AUC: ", auc))
+#   print(paste("SubsampleRate: ", currentSubsampleRate))
+#   print(paste("ColsampleRate: ", currentColsampleRate))
+#   print(paste("MaxDepth: ", currentDepth))
+#   print(paste("CurrentEta: ", currentEta))
+#   print(paste("CurrentMinChildWeight: ", currentMinChild))
+#   print(".....")
+# 
+#   output <- return(c(auc, currentSubsampleRate, currentColsampleRate, currentDepth, currentEta, currentMinChild))
+# })
+#output <- as.data.frame(t(hyperparameters))
+
+#Best result
+#AUC: 0.97339
+#subsample rate: 0.5
+#colsample rate: 0.5
+#depth: 2
+#eta: 0.1
+#min child: 0.75
+```
+It follows the best XGBoost classification run as a single model
+```{r XGBoost best single model}
+# best XGBoost model according to grid search
+  bstSparse <- xgboost(data = train_X, label = train_y, max.depth = 2, eta = 0.1, nthread = 2, nround = 230, objective = "binary:logistic", metrics='auc', subsample = 0.5, colsample_bytree = 0.5, min_child_weight = 0.75, verbose=0)
+  
+  xgboost_preds_proba = predict(bstSparse, validation_X)
+  xgboost_preds <- as.numeric(xgboost_preds_proba > 0.5)
+  
+  table(xgboost_preds, validation_y)
+  
+  auc(validation_y, xgboost_preds_proba)
+  
+```
+Profit calculation function
+```{r Gross profit function}
+# function for profit calculation.
+profits_from_donation_proba <- function(donation_prediction_proba)
+{
+
+  if (typeof(donation_prediction_proba) == "list")
+  {
+    
+    proba = unlist(donation_prediction_proba)
+    
+  } else if (!is.atomic(donation_prediction_proba))
+  {
+    proba = donation_prediction_proba$posterior
+    proba = proba[,2]
+  } else
+  {
+    proba = donation_prediction_proba
+  }
+  
+  ord = order(proba, decreasing=T)
+  ordered_proba = proba[ord]
+  ordered_profit <- cumsum(14.5*ordered_proba-2)
+  
+  max_profit_mailings = which.max(ordered_profit)
+  max_profit = max(ordered_profit)
+  max_profit_threshold = ordered_proba[max_profit_mailings + 1]
+  
+  result = data.frame(max_profit_mailings,max_profit,max_profit_threshold)
+  
+  return(result)
+}
+```
+Classification Model Evaluation:
+Series of applied classification models follows: Model algorithm was copied from provided code to identify the best performing model. Assuming that I executed the code correctly, the best performing model appears to be random forest (default settings), but I do have some concerns about overfitting. Please see below for my comments on each model type.  Models Evaluated: LDA, QDA, KNN, Logistic (GLM), Classification Tree, Bagged Model, Random Forest Model
+```{r Single model classification}
+# Classification Models
+train_index = data$part == 'train'
+train_X <- data[train_index,]
+train_y = train_X$donr
+train_X <- subset(train_X, select = -c(ID,damt,part) )
+
+validation_index = data$part == 'valid'
+validation_X <- data[validation_index,]
+validation_y = validation_X$donr
+validation_X <- subset(validation_X, select = -c(ID,damt,part) )
+
+# Linear Discriminant Analysis
+# Initial LDA model using quantitative varibles
+model.lda1 <- lda(donr ~ reg1 + reg2 + reg3 + reg4 + home + chld + hinc + I(hinc^2) + genf + wrat + avhv + incm + inca + plow + npro + tgif + lgif + rgif + 
+                     tdon + tlag + agif, data = train_X) 
+valid.lda1 <- predict(model.lda1, validation_X)$posterior[,2]
+auc.lda1 <- auc(validation_y, valid.lda1)
+print("LDA AUC")
+auc.lda1 #Area under the curve: 0.9414
+
+# Calculate profit, # of mailings, and threshold
+lda1.result <-  profits_from_donation_proba(valid.lda1)
+lda1.result$max_profit[1] # 12631.39
+lda1.result$max_profit_mailings[1]
+lda1.result$max_profit_threshold[1]
+
+# Our LDA model, copied from the provided code, with an AUC of 0.9414 reports 1452 mailings at a threshold of 0.1375 for a profit of 1452
+
+# Quadratic Discriminant Analysis
+model.qda1 <- qda(donr ~ reg1 + reg2 + reg3 + reg4 + home + chld + hinc + I(hinc^2) + genf + wrat + avhv + incm + inca + plow + npro + tgif + lgif + rgif + 
+                     tdon + tlag + agif, data = train_X) 
+valid.qda1 <- predict(model.qda1, validation_X)$posterior[,2]
+auc.qda1 <- auc(validation_y, valid.qda1)
+print("QDA AUC")
+auc.qda1 #Area under the curve: 0.9101
+
+# Calculate profit, # of mailings, and threshold
+qda1.result <-  profits_from_donation_proba(valid.qda1)
+qda1.result$max_profit[1] # 13017.3
+qda1.result$max_profit_mailings[1]
+qda1.result$max_profit_threshold[1]
+
+# Our QDA model, with an AUC of 0.9101, calculates 1269 mailings at a threshold of 0.1367 for a profit of 13017.3
+
+#K Nearest Neighbors
+attach(train_X)
+train.x <- cbind(reg1, reg2, reg3,reg4,home,chld,hinc,genf,wrat,avhv,incm,inca,plow,
+                 npro,tgif,lgif,rgif,tdon,tlag,agif)
+train.Direction <- train_X$donr
+attach(validation_X)
+valid.x <- cbind(reg1, reg2, reg3,reg4,home,chld,hinc,genf,wrat,avhv,incm,inca,plow,
+                 npro,tgif,lgif,rgif,tdon,tlag,agif)
+valid.Direction <- validation_X$donr
+
+model.knn1 <- knn(train.x, valid.x, train.Direction, k=1)
+table(model.knn1, validation_X$donr)
+(567+530)/2018 # K=1 0.5436075
+model.knn2 <- knn(train.x, valid.x, train.Direction, k=2)
+table(model.knn2, validation_X$donr)
+(520+554)/2018 # K=2 0.5322101
+model.knn3 <- knn(train.x, valid.x, train.Direction, k=3)
+table(model.knn3, validation_X$donr)
+(502+589)/2018 # K=3 0.5406343
+model.knn4 <- knn(train.x, valid.x, train.Direction, k=4)
+table(model.knn4, validation_X$donr)
+(519+570)/2018 # K=4 0.5396432
+model.knn5 <- knn(train.x, valid.x, train.Direction, k=5)
+table(model.knn5, validation_X$donr)
+(523+603)/2018 # K=5 0.5579782
+model.knn6 <- knn(train.x, valid.x, train.Direction, k=6)
+table(model.knn6, validation_X$donr)
+(534+595)/2018 # K=6 0.5594648
+model.knn7 <- knn(train.x, valid.x, train.Direction, k=7)
+table(model.knn7, validation_X$donr)
+(536+598)/2018 # K=7 0.5619425
+model.knn8 <- knn(train.x, valid.x, train.Direction, k=8)
+table(model.knn8, validation_X$donr)
+(528+576)/2018 # K=8 0.5470763
+model.knn9 <- knn(train.x, valid.x, train.Direction, k=9)
+table(model.knn9, validation_X$donr)
+(546+587)/2018 # K=9 0.561447
+model.knn10 <- knn(train.x, valid.x, train.Direction, k=10)
+table(model.knn10, validation_X$donr)
+(538+570)/2018 # K=10 0.5490585
+# K=7 had the best classification rate; calculate probabilities for K=7
+model.knnbest <- knn(train.x, valid.x, train.Direction, k=7, prob=TRUE)
+# Calculate profit, # of mailings, and threshold
+knn.prob <- (attr(model.knnbest,"prob") - 1)*-1
+knn.result <-  profits_from_donation_proba(knn.prob)
+knn.result$max_profit[1]
+knn.result$max_profit_mailings[1]
+# No threshold calculation
+auc.knn <- auc(validation_y, knn.prob) #0.4992431
+
+# Our KNN (K=7) model, with an AUC of 0.4992, calculates 1959 mailings for a profit 5637.76.
+
+# Logistic Regression
+model.log1 <- glm(donr ~ reg1 + reg2 + reg3 + reg4 + home + chld + hinc + I(hinc^2) + genf + wrat + avhv + incm + inca + plow + npro + tgif + lgif + rgif + 
+                     tdon + tlag + agif, data = train_X, family=binomial("logit")) 
+valid.log1 <- predict(model.log1, validation_X, type="response")
+auc.log1 <- auc(validation_y, valid.log1)
+print("LOG AUC")
+auc.log1 #Area under the curve: 0.9421 
+
+# Calculate profit, # of mailings, and threshold
+log1.result <-  profits_from_donation_proba(valid.log1)
+log1.result$max_profit[1] # 11812.05
+log1.result$max_profit_mailings[1]
+log1.result$max_profit_threshold[1]
+
+# Our Log model, with an AUC of 0.9421, calculates 1339 mailings at a theshold of 0.1363 for a profit of 11812.05
+
+# Classification Tree
+train_X$donr <- factor(ifelse(train_X$donr==0, "Zero", "One"))
+validation_X$donr <- factor(ifelse(validation_X$donr==0, "Zero", "One"))
+model.tree1 <- tree(donr ~ reg1 + reg2 + reg3 + reg4 + home + chld + hinc + I(hinc^2) + genf + wrat + avhv + incm + inca + plow + npro + tgif + lgif + rgif + 
+                     tdon + tlag + agif, data = train_X)
+summary(model.tree1)
+# variables used "chld" "home" "wrat" "reg2" "hinc" "tlag" "tdon"; 16 terminal node; Misclassification error rate: 0.1426 = 568 / 3984
+valid.tree1 <- predict(model.tree1, newdata=validation_X, type="class")
+valid.tree1_probs <- predict(model.tree1, newdata=validation_X, type="vector")[,1] #first row is positive probabilities
+table(valid.tree1, validation_X$donr)
+tree1.class <- (929+783)/2018
+print("Base Classification Tree Classification Rate:")
+tree1.class #0.8483647
+# Calculate Classfication Tree AUC
+auc.tree1 <- auc(validation_y, valid.tree1_probs)
+auc.tree1 #Area under the curve: 0.9153
+
+# Calculate profit, # of mailings, and threshold
+tree1.result <-  profits_from_donation_proba(valid.tree1_probs)
+tree1.result$max_profit[1] # 11790.19
+tree1.result$max_profit_mailings[1]
+tree1.result$max_profit_threshold[1]
+
+# Our classification tree, with an AUC of 0.9153, calculated 1378 mailings at a threshold of 0.0622 with a profit of 11790.19
+
+# see if pruning of classificaiton treee leads to better results on base class model
+set.seed(1)
+cv.tree1 <- cv.tree(model.tree1, FUN=prune.misclass)
+cv.tree1 # Confirms 15 & 16 nodes have the least deviance, no point in pruning
+
+# Bagging and Random Forest
+# Bagging Model
+set.seed(1)
+model.bag1 <- randomForest(donr ~ reg1 + reg2 + reg3 + reg4 + home + chld + hinc + I(hinc^2) + genf + wrat + avhv + incm + inca + plow + npro + tgif + lgif + rgif + 
+                     tdon + tlag + agif, data = train_X, mtry = 20, importance = TRUE)
+valid.bag1 <- predict(model.bag1, newdata=validation_X, type="class")
+table(valid.bag1, validation_X$donr)
+bag1.class <- (904+892)/2018
+print("Base Bagged Classification Rate (m=p):")
+bag1.class # Classification rate of 0.8899901
+# Calculate model probabilities to calculate AUC and profit
+valid.bag1_probs <- predict(model.bag1, newdata=validation_X, type="prob")[,1]
+auc.bag1 <- auc(validation_y, valid.bag1_probs)
+auc.bag1 #Area under the curve: 0.9529
+
+# Calculate profit, # of mailings, and threshold
+bag1.result <-  profits_from_donation_proba(valid.bag1_probs)
+bag1.result$max_profit[1] #11774.45
+bag1.result$max_profit_mailings[1]
+bag1.result$max_profit_threshold[1]
+
+# Our bagged model, with an AUC of 0.9529, calculated 1403 mailings at a threshold of 0.136 for a profit of 11774.45
+
+# Random Forest Model (Default)
+set.seed(1)
+print(length(donr))
+model.rf1 <- randomForest(donr ~ reg1 + reg2 + reg3 + reg4 + home + chld + hinc + I(hinc^2) + genf + wrat + avhv + incm + inca + plow + npro + tgif + lgif + rgif + 
+                     tdon + tlag + agif, data = train_X, importance = TRUE) #use rf default settings
+valid.rf1 <- predict(model.rf1, newdata=validation_X, type="class")
+table(valid.rf1, validation_X$donr)
+rf1.class <- (929+880)/2018
+print("Random Forest Classification Rate:")
+rf1.class # 0.8964321
+
+# Calculate model probabilities to calculate AUC and profit
+valid.rf1_probs <- predict(model.rf1, newdata=validation_X, type="prob")[,1]
+auc.rf1 <- auc(validation_y, valid.rf1_probs)
+auc.rf1 #0.9612566
+
+# Calculate profit, # of mailings, and threshold
+rf1.result <-  profits_from_donation_proba(valid.rf1_probs)
+rf1.result$max_profit[1] # 11399.13
+rf1.result$max_profit_mailings[1]
+rf1.result$max_profit_threshold[1]
+
+# Our random forest model, with an AUC of 0.8964, calculated 1520 mailings at a threshold of 0.136 for a profit of 11399.13. 
+
+# Max Profit Classification Model Results
+# LDA 12631.39
+# QDA 13017.3
+# KNN 5637.76
+# GLM (LOG) 11812.05
+# TREE 11790.19
+# BAG 11774.45
+# RF 11399.13
+```
+Subsequently I introduce the package caretEnsemble to do an ensemble stacking with several base models and find out the correlation of these models.
+
+Particularly, I am looking for one or several models with a very high validation set test AUC which has a low correlation with our best performing model, the XGBoost, and then include it in the ensemble.
+
+I identified the model glm as auch an model. We include it in our ensemble.
+
+Right now we first implement a new metric for the caret ensemble stacking
+
+```{r Ensemble metric function}
+# gross profit function used for model selection as part of the stacking ensemble
+grossProfitSummary <- function (data,lev = NULL,model = NULL) {
+  
+  proba = data$One
+  ord = order(proba, decreasing=T)
+  ordered_proba = proba[ord]
+  ordered_profit <- cumsum(14.5*ordered_proba-2)
+  
+  max_profit = max(ordered_profit)
+
+  out <- max_profit
+  
+  names(out) <- "Gross profit"
+  
+  return(out)
+  
+}
+```
+
+```{r Validation classification ensemble}
+train_index = data$part == 'train'
+train_X <- data[train_index,]
+train_y = train_X$donr
+train_X <- subset(train_X, select = -c(ID,damt,part) )
+train_X$donr <- factor(ifelse(train_X$donr==0, "Zero", "One"))
+
+validation_index = data$part == 'valid'
+validation_X <- data[validation_index,]
+validation_y = validation_X$donr
+validation_X <- subset(validation_X, select = -c(ID,damt,part) )
+validation_X$donr <- factor(ifelse(validation_X$donr==0, "Zero", "One"))
+
+set.seed(666)
+my_control <- trainControl(
+  method="cv",
+  number=10,
+  savePredictions="final",
+  classProbs=TRUE,
+  index=createFolds(train_y, k = 10, list = TRUE, returnTrain = FALSE),
+  summaryFunction=grossProfitSummary,
+  verboseIter = FALSE
+  )
+
+# super fancy, the caretList does auto-tuning
+valid.class.model_list <- caretList(
+  donr~., data=train_X,
+  trControl=my_control,
+  metric="ROC",
+  methodList=c(#"xgbTree" 
+               #,"glm"
+               #,"rf"
+               #,"ranger" 
+               #,"knn"
+               #,"adaboost" 
+               #,'rotationForest'
+               #,'wsrf'
+               #,'lda'
+               'qda'
+               #,'rda'
+               ,'fda'
+               ,'hda'
+               )
+  )
+
+# you may realise that we don't use the parameters obtained in the grid search here. It's because I realised that a plain vanilla xgbTree as it is given by the caret package performs equally well up to an AUC of 0.973x, opposed to the xgboost() function.
+
+#modelCor(resamples(model_list))
+# this correlation matrix produces strange results, so we implement our own later on
+
+# predict validation data
+valid.ensemble_model_preds_proba_donr <- lapply(valid.class.model_list, predict, newdata=validation_X, type="prob")
+valid.ensemble_model_preds_proba_donr <- data.frame(valid.ensemble_model_preds_proba_donr)
+
+set.seed(666)
+# super fancy, the caretStack does auto-tuning
+valid.class.glm_ensemble <- caretStack(
+  valid.class.model_list,
+  method="hda",
+  metric="ROC",
+  trControl=trainControl(
+    method="cv",
+    number=10,
+    savePredictions="final",
+    classProbs=TRUE,
+    summaryFunction=grossProfitSummary,
+    verboseIter = FALSE
+  )
+)
+
+valid.ensemble_model_preds_proba_donr$ensemble.One <- predict(valid.class.glm_ensemble, newdata=validation_X, type="prob")
+valid.ensemble_model_preds_proba_donr$ensemble.Zero = 1 - valid.ensemble_model_preds_proba_donr$ensemble.One
+
+# own correlation matrix
+print("Correlation matrix:")
+positives_index <- grepl('.One', colnames(valid.ensemble_model_preds_proba_donr))
+res <- cor(valid.ensemble_model_preds_proba_donr[positives_index])
+round(res, 2)
+
+print("")
+print("Validation set test AUC:")
+colAUC(valid.ensemble_model_preds_proba_donr, validation_X$donr)
+
+print("")
+print("Validation set test gross profit:")
+for (i in 1:length(names(valid.ensemble_model_preds_proba_donr)))
+{
+  col = names(valid.ensemble_model_preds_proba_donr)[i]
+  if (grepl("Zero",col))
+    next
+  gross_profit = profits_from_donation_proba(valid.ensemble_model_preds_proba_donr[col])$max_profit[1]
+  print(paste("Gross profit for",col,": ",gross_profit))
+}
+
+print("")
+print("Validation set average probability for One:")
+for (i in 1:length(names(valid.ensemble_model_preds_proba_donr)))
+{
+  col = names(valid.ensemble_model_preds_proba_donr)[i]
+  if (grepl("Zero",col))
+    next
+  avg_prob = mean(valid.ensemble_model_preds_proba_donr[[col]])
+  print(paste("Average probability for",col,": ",avg_prob))
+}
+
+# ENSEMBLE SELECTION DETAILS
+# STEP 1
+#                    xgbTree.One glm.One rf.One ranger.One knn.One adaboost.One rotationForest.One wsrf.One
+# xgbTree.One               1.00    0.83   0.94       0.94    0.13         0.26               0.80     0.95
+# glm.One                   0.83    1.00   0.84       0.87    0.16         0.22               0.76     0.84
+# rf.One                    0.94    0.84   1.00       0.98    0.12         0.25               0.87     0.98
+# ranger.One                0.94    0.87   0.98       1.00    0.10         0.25               0.87     0.97
+# knn.One                   0.13    0.16   0.12       0.10    1.00         0.00               0.03     0.12
+# adaboost.One              0.26    0.22   0.25       0.25    0.00         1.00               0.23     0.26
+# rotationForest.One        0.80    0.76   0.87       0.87    0.03         0.23               1.00     0.86
+# wsrf.One                  0.95    0.84   0.98       0.97    0.12         0.26               0.86     1.00
+# lda.One                   0.83    1.00   0.84       0.87    0.16         0.22               0.77     0.84
+# qda.One                   0.82    0.87   0.82       0.84    0.15         0.18               0.67     0.82
+# rda.One                     NA      NA     NA         NA      NA           NA                 NA       NA
+# fda.One                   0.95    0.87   0.94       0.95    0.12         0.26               0.84     0.94
+# hda.One                   0.46    0.53   0.47       0.50    0.05         0.07               0.42     0.48
+# ensemble.One              0.95    0.85   0.93       0.95    0.12         0.26               0.80     0.94
+#                    lda.One qda.One rda.One fda.One hda.One ensemble.One
+# xgbTree.One           0.83    0.82      NA    0.95    0.46         0.95
+# glm.One               1.00    0.87      NA    0.87    0.53         0.85
+# rf.One                0.84    0.82      NA    0.94    0.47         0.93
+# ranger.One            0.87    0.84      NA    0.95    0.50         0.95
+# knn.One               0.16    0.15      NA    0.12    0.05         0.12
+# adaboost.One          0.22    0.18      NA    0.26    0.07         0.26
+# rotationForest.One    0.77    0.67      NA    0.84    0.42         0.80
+# wsrf.One              0.84    0.82      NA    0.94    0.48         0.94
+# lda.One               1.00    0.85      NA    0.88    0.50         0.86
+# qda.One               0.85    1.00      NA    0.82    0.61         0.83
+# rda.One                 NA      NA       1      NA      NA           NA
+# fda.One               0.88    0.82      NA    1.00    0.45         0.98
+# hda.One               0.50    0.61      NA    0.45    1.00         0.44
+# ensemble.One          0.86    0.83      NA    0.98    0.44         1.00
+# [1] ""
+# [1] "Validation set test AUC:"
+#              xgbTree.One xgbTree.Zero   glm.One  glm.Zero    rf.One   rf.Zero ranger.One ranger.Zero  knn.One
+# One vs. Zero   0.9689326    0.9689326 0.9140573 0.9140573 0.9523886 0.9523886   0.955395    0.955395 0.563537
+#              knn.Zero adaboost.One adaboost.Zero rotationForest.One rotationForest.Zero  wsrf.One wsrf.Zero
+# One vs. Zero 0.563537    0.7444569     0.7444569           0.873116            0.873116 0.9560842 0.9560842
+#                lda.One  lda.Zero  qda.One  qda.Zero   rda.One  rda.Zero   fda.One  fda.Zero   hda.One  hda.Zero
+# One vs. Zero 0.9138304 0.9138304 0.904846 0.9048489 0.5922056 0.5911869 0.9650111 0.9650111 0.7473185 0.7473185
+#              ensemble.One ensemble.Zero
+# One vs. Zero    0.9616152     0.9616152
+# [1] ""
+# [1] "Validation set test gross profit:"
+# [1] "Gross profit for xgbTree.One :  12162.0672258884"
+# [1] "Gross profit for glm.One :  11492.1528920967"
+# [1] "Gross profit for rf.One :  11772.334"
+# [1] "Gross profit for ranger.One :  11789.1025186508"
+# [1] "Gross profit for knn.One :  11297.9666666667"
+# [1] "Gross profit for adaboost.One :  31857752541679304704"
+# [1] "Gross profit for rotationForest.One :  10989.9454171537"
+# [1] "Gross profit for wsrf.One :  11984.891"
+# [1] "Gross profit for lda.One :  12049.9430394036"
+# [1] "Gross profit for qda.One :  12780.324716559"
+# [1] "Gross profit for rda.One :  NaN"
+# [1] "Gross profit for fda.One :  12447.7112092145"
+# [1] "Gross profit for hda.One :  15494.832596382"
+# [1] "Gross profit for ensemble.One :  12751.598470712"
+# [1] ""
+# [1] "Validation set average probability for One:"
+# [1] "Average probability for xgbTree.One :  0.506845018725605"
+# [1] "Average probability for glm.One :  0.502034525731484"
+# [1] "Average probability for rf.One :  0.512899900891972"
+# [1] "Average probability for ranger.One :  0.51196082204603"
+# [1] "Average probability for knn.One :  0.518368021143046"
+# [1] "Average probability for adaboost.One :  -213602237863092"
+# [1] "Average probability for rotationForest.One :  0.510686866171228"
+# [1] "Average probability for wsrf.One :  0.518782953419227"
+# [1] "Average probability for lda.One :  0.525193276001618"
+# [1] "Average probability for qda.One :  0.533007720455996"
+# [1] "Average probability for rda.One :  NaN"
+# [1] "Average probability for fda.One :  0.526857267282792"
+# [1] "Average probability for hda.One :  0.651257646928141"
+# [1] "Average probability for ensemble.One :  0.536647840718468"
+
+# run on all models, we see that we have lots of poor models in here. We stick to the top 3 for the ensemble, in order hda, qda and fda.
+
+# STEP 2
+#              qda.One fda.One hda.One ensemble.One
+# qda.One         1.00    0.82    0.61         0.86
+# fda.One         0.82    1.00    0.45         0.99
+# hda.One         0.61    0.45    1.00         0.45
+# ensemble.One    0.86    0.99    0.45         1.00
+# [1] ""
+# [1] "Validation set test AUC:"
+#               qda.One  qda.Zero   fda.One  fda.Zero   hda.One  hda.Zero ensemble.One ensemble.Zero
+# One vs. Zero 0.904846 0.9048489 0.9650111 0.9650111 0.7473185 0.7473185    0.9642606     0.9642606
+# [1] ""
+# [1] "Validation set test gross profit:"
+# [1] "Gross profit for qda.One :  12780.324716559"
+# [1] "Gross profit for fda.One :  12447.7112092145"
+# [1] "Gross profit for hda.One :  15494.832596382"
+# [1] "Gross profit for ensemble.One :  12857.0145325933"
+# [1] ""
+# [1] "Validation set average probability for One:"
+# [1] "Average probability for qda.One :  0.533007720455996"
+# [1] "Average probability for fda.One :  0.526857267282792"
+# [1] "Average probability for hda.One :  0.651257646928141"
+# [1] "Average probability for ensemble.One :  0.547154288004668"
+
+# we see that the ensemble does not improve our individual result. I will use hda instead of XGBoost for the stacker and try again.
+
+# STEP 3
+# [1] "Correlation matrix:"
+#              qda.One fda.One hda.One ensemble.One
+# qda.One         1.00    0.82    0.61         0.87
+# fda.One         0.82    1.00    0.45         0.96
+# hda.One         0.61    0.45    1.00         0.47
+# ensemble.One    0.87    0.96    0.47         1.00
+# [1] ""
+# [1] "Validation set test AUC:"
+#               qda.One  qda.Zero   fda.One  fda.Zero   hda.One  hda.Zero ensemble.One ensemble.Zero
+# One vs. Zero 0.904846 0.9048489 0.9650111 0.9650111 0.7473185 0.7473185    0.9647253     0.9647253
+# [1] ""
+# [1] "Validation set test gross profit:"
+# [1] "Gross profit for qda.One :  12780.324716559"
+# [1] "Gross profit for fda.One :  12447.7112092145"
+# [1] "Gross profit for hda.One :  15494.832596382"
+# [1] "Gross profit for ensemble.One :  13758.3748527266"
+# [1] ""
+# [1] "Validation set average probability for One:"
+# [1] "Average probability for qda.One :  0.533007720455996"
+# [1] "Average probability for fda.One :  0.526857267282792"
+# [1] "Average probability for hda.One :  0.651257646928141"
+# [1] "Average probability for ensemble.One :  0.557404789276435"
+
+# well, this resulted in some improvement of the ensemble again. but this is not sufficient for our team. we will stick to the HDA model if nothing better comes up.
+
+# try to find a relationship between positive class average probability and gross profit
+gross_profit = c(12162.0672258884,11492.1528920967,11772.334,11789.1025186508,11297.9666666667,10989.9454171537,11984.891,12049.9430394036,12780.324716559,12447.7112092145,15494.832596382,12751.598470712,13758.3748527266,12857.0145325933)
+
+pos_class_avg_prob = c(0.506845018725605,0.502034525731484,0.512899900891972,0.51196082204603,0.518368021143046,0.510686866171228,0.518782953419227,0.525193276001618,0.533007720455996,0.526857267282792,0.651257646928141,0.536647840718468,0.557404789276435,0.547154288004668)
+
+z <- lm(gross_profit ~ pos_class_avg_prob)
+plot(pos_class_avg_prob,gross_profit)
+abline(z)
+title(main=paste("R-squared: ", round(summary(z)$r.squared,2)), font.main=4)
+
+valid.class.model_list$hda$bestTune
+valid.class.model_list$fda$bestTune
+
+```
+It follows the ensemble model run on the merged training and validation set. While no AUC is available in this situation, the correlation between the different base model predictions is of particular interest, because we already know high achieving models and would now choose of of these that has a low correlation with the top performing XGBoost to improve the ensemble. This ensemble model should be competitive enough for the final predictions of the test set.
+```{r Test classification ensemble}
+train_and_validation_index = data$part != 'test'
+train_and_validation_X <- data[train_and_validation_index,]
+train_and_validation_y = train_and_validation_X$donr
+#train_and_validation_donation_only_index = train_and_validation_X$donr == 1
+#train_and_validation_donation_only = train_and_validation_X[train_and_validation_donation_only_index,]
+#mean(train_and_validation_donation_only$damt)
+train_and_validation_X <- subset(train_and_validation_X, select = -c(ID,damt,part) )
+train_and_validation_X$donr <- factor(ifelse(train_and_validation_X$donr==0, "Zero", "One"))
+
+test_index = data$part == 'test'
+test_X <- data[test_index,]
+test_y = test_X$donr
+test_X <- subset(test_X, select = -c(donr,ID,damt,part) )
+#test_X$donr <- factor(ifelse(test_X$donr==0, "Zero", "One")) # no label for test data
+
+set.seed(666)
+my_control <- trainControl(
+  method="cv",
+  number=10,
+  savePredictions="final",
+  classProbs=TRUE,
+  index=createFolds(train_and_validation_y, k = 10, list = TRUE, returnTrain = FALSE),
+  summaryFunction=grossProfitSummary,
+  verboseIter = FALSE
+  )
+
+# super fancy, the caretList does auto-tuning
+test.class.model_list <- caretList(
+  donr~., data=train_and_validation_X,
+  trControl=my_control,
+  metric="ROC",
+  methodList=c(#"xgbTree", 
+               #"glm"
+               #,"rf",
+               #"ranger", 
+               #"knn"
+               #,"adaboost", 
+               #'rotationForest',
+               #'wsrf',
+               #'lda',
+               'qda',
+               #'rda',
+               'fda',
+               'hda'
+               )
+  )
+
+final.ensemble_model_preds_proba_donr <- lapply(test.class.model_list, predict, newdata=test_X, type="prob")
+final.ensemble_model_preds_proba_donr <- data.frame(final.ensemble_model_preds_proba_donr)
+
+set.seed(666)
+# super fancy, the caretStack does auto-tuning
+test.class.glm_ensemble <- caretStack(
+  test.class.model_list,
+  method="hda",
+  metric="ROC",
+  trControl=trainControl(
+    method="cv",
+    number=10,
+    savePredictions="final",
+    classProbs=TRUE,
+    summaryFunction=grossProfitSummary,
+    verboseIter = FALSE
+  )
+)
+
+# I really don't know why, but here the predict() function predicts the probability for not being a donor, so we have to adapt accordingly.
+final.ensemble_model_preds_proba_donr$ensemble.Zero <- predict(test.class.glm_ensemble, newdata=test_X, type="prob")
+final.ensemble_model_preds_proba_donr$ensemble.One = 1 - final.ensemble_model_preds_proba_donr$ensemble.Zero
+
+# own correlation matrix
+print("Correlation matrix:")
+positives_index <- grepl('.One', colnames(final.ensemble_model_preds_proba_donr))
+res_final <- cor(final.ensemble_model_preds_proba_donr[positives_index])
+round(res_final, 2)
+
+print("")
+print("Validation set average probability for One:")
+for (i in 1:length(names(final.ensemble_model_preds_proba_donr)))
+{
+  col = names(final.ensemble_model_preds_proba_donr)[i]
+  if (grepl("Zero",col))
+    next
+  avg_prob = mean(final.ensemble_model_preds_proba_donr[[col]])
+  print(paste("Average probability for",col,": ",avg_prob))
+}
+
+# remember that not the ensemble but the hda model is our favorite here
+
+# [1] "Correlation matrix:"
+#              qda.One fda.One hda.One ensemble.One
+# qda.One         1.00    0.74    0.50         0.77
+# fda.One         0.74    1.00    0.33         0.93
+# hda.One         0.50    0.33    1.00         0.33
+# ensemble.One    0.77    0.93    0.33         1.00
+# [1] ""
+# [1] "Validation set average probability for One:"
+# [1] "Average probability for qda.One :  0.297606472795765"
+# [1] "Average probability for fda.One :  0.253542670082984"
+# [1] "Average probability for hda.One :  0.569223638349979"
+# [1] "Average probability for ensemble.One :  0.20948026677733"
+
+test.class.model_list$hda$bestTune
+
+```
+Now it's the time to do some regression.
+Regression Model Evaluation:
+Series of applied regression model methods follow for evaulation. Least Squares, Least Squares with BSS, Ridge Regression, Lasso, PLS, and PCR. Lasso appears to performing the best on the baseline models.  Next step is to apply transformations and subset selection from BSS to lasso to see if I can reduce the MSE.  I'll probably incorporate Prof.B transformations to see if we can beat them.
+```{r Single model regression}
+# Copy a version of the data for baseline regression
+rdata <- data
+rtrain_index = rdata$part == 'train'
+rtrain_X <- rdata[rtrain_index,]
+rvalidation_index = rdata$part == 'valid'
+rvalidation_X <- rdata[rvalidation_index,]
+valid_damt <- rvalidation_X$damt
+numvalid_damt <- length(valid_damt)
+
+# Copy a version of the data to apply transformations
+xdata <- data
+xdata$log.avhv <- log(xdata$avhv)
+xdata$sqrt.plow <- sqrt(xdata$plow)
+xdata$sqrt.npro <- sqrt(xdata$npro)
+xdata$log.tgif <- log(xdata$tgif)
+xdata$sqrt.tdon <- sqrt(xdata$tdon)
+xdata$log.tlag <- sqrt(xdata$tlag)
+
+# split up the transformed data set
+xtrain_index = xdata$part == 'train'
+xtrain_X <- xdata[xtrain_index,]
+xvalidation_index = xdata$part == 'valid'
+xvalidation_X <- xdata[xvalidation_index,]
+xvalid_damt <- xvalidation_X$damt
+xnumvalid_damt <- length(xvalid_damt)
+
+# Apply standardization
+x.train <- xtrain_X[,2:21]
+c.train <- xtrain_X[,22]
+x.train.mean <- apply(x.train, 2, mean)
+x.train.sd <- apply(x.train, 2, sd)
+x.train.std <- t((t(x.train)-x.train.mean)/x.train.sd) # standardize to have zero mean and unit sd
+x.train.data <- data.frame(x.train.std, damt = xtrain_X$damt)
+
+x.valid <- xvalidation_X[,2:21]
+c.valid <- xvalidation_X[,22]
+x.valid.mean <- apply(x.valid, 2, mean)
+x.valid.sd <- apply(x.valid, 2, sd)
+x.valid.std <- t((t(x.valid)-x.valid.mean)/x.valid.sd) # standardize to have zero mean and unit sd
+x.valid.data <- data.frame(x.valid.std)
+
+
+# Ordinary Least Squares Regression
+model.ls1 <- glm(damt ~ reg1 + reg2 + reg3 + reg4 + home + chld + hinc + genf + wrat + avhv + incm + inca + plow + npro + tgif + lgif + rgif + tdon + tlag + agif, 
+                data = rtrain_X)
+pred.valid.ls1 <- predict(model.ls1, newdata = rvalidation_X) # validation predictions
+mean((valid_damt - pred.valid.ls1)^2) # mean prediction error 28.14919
+sd((valid_damt - pred.valid.ls1)^2)/sqrt(numvalid_damt) # std error 0.7842426
+
+# OLS Using Prof.B transformations and variable selection
+# predictor transformations
+
+charity.t <- data
+charity.t$avhv <- log(charity.t$avhv)
+# add further transformations if desired
+# for example, some statistical methods can struggle when predictors are highly skewed
+
+# set up data for analysis
+
+data.train <- charity.t[charity.t$part=="train",]
+x.train <- data.train[,2:21]
+c.train <- data.train[,22] # donr
+n.train.c <- length(c.train) # 3984
+y.train <- data.train[c.train==1,23] # damt for observations with donr=1
+n.train.y <- length(y.train) # 1995
+
+data.valid <- charity.t[charity.t$part=="valid",]
+x.valid <- data.valid[,2:21]
+c.valid <- data.valid[,22] # donr
+n.valid.c <- length(c.valid) # 2018
+y.valid <- data.valid[c.valid==1,23] # damt for observations with donr=1
+n.valid.y <- length(y.valid) # 999
+
+data.test <- charity.t[charity.t$part=="test",]
+n.test <- dim(data.test)[1] # 2007
+x.test <- data.test[,2:21]
+x.damt <- data.test[]
+
+x.train.mean <- apply(x.train, 2, mean)
+x.train.sd <- apply(x.train, 2, sd)
+x.train.std <- t((t(x.train)-x.train.mean)/x.train.sd) # standardize to have zero mean and unit sd
+apply(x.train.std, 2, mean) # check zero mean
+apply(x.train.std, 2, sd) # check unit sd
+data.train.std.c <- data.frame(x.train.std, donr=c.train) # to classify donr
+data.train.std.y <- data.frame(x.train.std[c.train==1,], damt=y.train) # to predict damt when donr=1
+
+x.valid.std <- t((t(x.valid)-x.train.mean)/x.train.sd) # standardize using training mean and sd
+data.valid.std.c <- data.frame(x.valid.std, donr=c.valid) # to classify donr
+data.valid.std.y <- data.frame(x.valid.std[c.valid==1,], damt=y.valid) # to predict damt when donr=1
+
+x.test.std <- t((t(x.test)-x.train.mean)/x.train.sd) # standardize using training mean and sd
+data.test.std <- data.frame(x.test.std)
+
+# OLS 3
+model.ls3 <- lm(damt ~ reg1 + reg2 + reg3 + reg4 + home + chld + hinc + genf + wrat + avhv + incm + inca + plow + npro + tgif + lgif + rgif + tdon + tlag + agif, data.train.std.y)
+pred.valid.ls3 <- predict(model.ls3, newdata = data.valid.std.y) # validation predictions
+mean((y.valid - pred.valid.ls3)^2) # mean prediction error 1.867523
+sd((y.valid - pred.valid.ls1)^2)/sqrt(n.valid.y) # std error 0.1696615
+
+# OLS 4
+model.ls4 <- lm(damt ~ reg1 + reg2 + reg3 + reg4 + home + chld + hinc + genf + avhv + incm + inca + plow + npro + tgif + lgif + rgif + tdon + tlag + agif, data.train.std.y)
+pred.valid.ls4 <- predict(model.ls4, newdata = data.valid.std.y) # validation predictions
+mean((y.valid - pred.valid.ls4)^2) # mean prediction error 1.867433 
+sd((y.valid - pred.valid.ls4)^2)/sqrt(n.valid.y) # std error 0.1696498
+
+# Best Subset Selection
+model.bss1 <- regsubsets(damt ~ reg1 + reg2 + reg3 + reg4 + home + chld + hinc + genf + wrat + avhv + incm + inca + plow + npro + tgif + lgif + rgif + tdon + tlag+                            agif,data = rtrain_X, nvmax = 20)
+bss.summary <- summary(model.bss1)
+# Plot RSS, Adj R^2, Cp, and BIC for all models
+par(mfrow=c(2,2))
+plot(bss.summary$rss, xlab = "Number of Variables", ylab = "RSS", type = "l")
+plot(bss.summary$adjr2, xlab = "Number of Variables", ylab = "AdjR2", type = "l")
+plot(bss.summary$cp, xlab = "Number of Variables", ylab = "Cp", type = "l")
+plot(bss.summary$bic, xlab = "Number of Variables", ylab = "bic", type = "l")
+# Key inflection point for most plots is 10 variable model
+which.min(bss.summary$rss) #20
+which.max(bss.summary$adjr2) #17
+which.min(bss.summary$cp) #16
+which.min(bss.summary$bic) #11
+# Selecting 11 variables based off plots and BIC
+coef(model.bss1, 11) #Var Selection (reg1, reg2, home, chld, hinc, wrat, incm, npro, tdon, tlag, agif)
+# Incorporating BSS into Least Squares Model
+model.ls2 <- glm(damt ~ reg1 + reg2 + home + chld + hinc + wrat + incm + npro + tdon + tlag + agif, data = rtrain_X)
+pred.valid.ls2 <- predict(model.ls2, newdata = rvalidation_X) # validation predictions
+mean((valid_damt - pred.valid.ls2)^2) # mean prediction error 28.22901
+sd((valid_damt - pred.valid.ls2)^2)/sqrt(numvalid_damt) # std error 0.7787075
+
+# Ridge Regression
+# Define X matrix and Y vector for training and validation data
+x <- model.matrix(damt ~ reg1 + reg2 + reg3 + reg4 + home + chld + hinc + genf + wrat + avhv + incm + inca + plow + npro + tgif + lgif + rgif + tdon + tlag+                            agif, data = rtrain_X)
+x.valid.matrix <- model.matrix(damt ~ reg1 + reg2 + reg3 + reg4 + home + chld + hinc + genf + wrat + avhv + incm + inca + plow + npro + tgif + lgif + rgif + tdon +                                 tlag + agif, data = rvalidation_X)
+y <- rtrain_X$damt
+y.valid <- rvalidation_X$damt
+# Define subset X matrix and Y vector for transformed training and validation data
+xfer.x <- model.matrix(damt ~ reg1 + reg2 + reg3 + reg4 + home + chld + hinc + genf + wrat + log.avhv + incm + inca + sqrt.plow + sqrt.npro + log.tgif + lgif + rgif +      
+                         sqrt.tdon + log.tlag + agif, data = xtrain_X)
+xfer.x.valid.matrix <- model.matrix(damt ~ reg1 + reg2 + reg3 + reg4 + home + chld + hinc + genf + wrat + log.avhv + incm + inca + sqrt.plow + sqrt.npro + log.tgif + lgif +
+                                      rgif + sqrt.tdon + log.tlag + agif, data = xvalidation_X)
+xfer.y <- xtrain_X$damt
+xfer.y.valid <- xvalidation_X$damt
+# Define subset X matrix and Y vector for Prof. B data
+b.x <- model.matrix(damt ~ reg1 + reg2 + reg3 + reg4 + home + chld + hinc + genf + avhv + incm + inca + plow + npro + tgif + lgif + rgif + tdon + tlag + agif, data.train.std.y)
+b.valid.matrix <- model.matrix(damt ~ reg1 + reg2 + reg3 + reg4 + home + chld + hinc + genf + avhv + incm + inca + plow + npro + tgif + lgif + rgif + tdon + tlag + agif, data.valid.std.y)
+b.y <- data.train.std.y$damt
+b.y.valid <- data.valid.std.y$damt
+
+# Fit the Ridge Regression Model on default settings
+grid <- 10^seq(10, -2, length=100) #creates a grid of lambda values to evaluate
+model.ridge1 <- glmnet(x,y, alpha=0, lambda = grid)
+
+set.seed(1)
+cv.out <- cv.glmnet(x, y, alpha=0)
+plot(cv.out)
+bestlam <- cv.out$lambda.min
+bestlam #best lambda value is  0.4463389
+valid.ridge1 <- predict(model.ridge1, s=bestlam, newx=x.valid.matrix)
+mean((valid.ridge1-y.valid)^2) #MSE or Mean Predictive Error is 28.15642
+
+# Lasso
+model.lasso1 <- glmnet(x, y, alpha=1, lambda=grid)# setting alpha to 1 applies lasso
+set.seed(1)
+cv.out.lasso <- cv.glmnet(x, y, alpha=1)
+bestlam.lasso <- cv.out.lasso$lambda.min
+bestlam.lasso # Lasso best lambda 0.01531152
+valid.lasso1 <- predict(model.lasso1, s=bestlam.lasso, newx=x.valid.matrix)
+mean((valid.lasso1-y.valid)^2) #MSE or Mean Predictive Error is 28.12962; baseline lasso better than ridge regression
+
+# Transfer Lasso
+model.lasso2 <- glmnet(xfer.x, xfer.y, alpha=1, lambda=grid)# setting alpha to 1 applies lasso
+set.seed(1)
+cv.out.lasso2 <- cv.glmnet(xfer.x, xfer.y, alpha=1)
+bestlam.lasso2 <- cv.out.lasso2$lambda.min
+bestlam.lasso2 # Lasso 2 best lambda 0.02024093
+valid.lasso2 <- predict(model.lasso2, s=bestlam.lasso2, newx=xfer.x.valid.matrix)
+mean((valid.lasso2-xfer.y.valid)^2) #MSE or Mean Predictive Error is 28.11146; transfer lasso better than baseline lasso
+
+# BEST PREDICTION MODEL Mean Pred Error: 1.86133 
+# Prof. B Lasso
+model.lasso3 <- glmnet(b.x, b.y, alpha=1, lambda=grid)# setting alpha to 1 applies lasso
+set.seed(1)
+cv.out.lasso3 <- cv.glmnet(b.x, b.y, alpha=1)
+bestlam.lasso3 <- cv.out.lasso3$lambda.min
+bestlam.lasso3 # Lasso 3 best lambda 0.002174241
+valid.lasso3 <- predict(model.lasso3, s=bestlam.lasso3, newx=b.valid.matrix)
+mean((valid.lasso3-b.y.valid)^2) #MSE or Mean Predictive Error is 1.86133
+mean((b.y.valid - valid.lasso3)^2) # mean prediction error 1.86133 
+sd((b.y.valid - valid.lasso3)^2)/sqrt(n.valid.y) # 0.1694185
+
+# Principal Components Regression
+set.seed(1)
+model.pcr1 <- pcr(damt ~ reg1 + reg2 + reg3 + reg4 + home + chld + hinc + genf + wrat + avhv + incm + inca + plow + npro + tgif + lgif + rgif + tdon +                                 tlag + agif, data = rtrain_X, scale=TRUE, validation="CV")
+validationplot(model.pcr1, val.type = "MSEP")  # it appears that the addition of all 18 components minimizes CV error
+valid.pcr1 <- predict(model.pcr1, rvalidation_X, ncomp=18)
+mean((valid.pcr1 - y.valid)^2) #MSE 28.18281
+
+# Partial Least Squares
+set.seed(1)
+model.plsr1 <- plsr(damt ~ reg1 + reg2 + reg3 + reg4 + home + chld + hinc + genf + wrat + avhv + incm + inca + plow + npro + tgif + lgif + rgif + tdon +                                 tlag + agif, data = rtrain_X, scale=TRUE, validation="CV")
+validationplot(model.plsr1, val.type = "MSEP")  # Appears that 5 components minimizes CV error
+valid.plsr1 <- predict(model.plsr1, rvalidation_X, ncomp=5)
+mean((valid.plsr1 - y.valid)^2) #MSE  28.15258, better than PCR
+
+
+```
+I will introduce a stacking ensemble for the donation amount prediction and do some magic with it.
+
+But first I add the predicted probabilities to the training and validation data.
+```{r Enriching data with probability for regression ensemble}
+# First I want to enrich our (input) training and validation set with the donation probabiliy, which we already did for the test set. I recalculate the probability with the competitive hda model.
+
+train_and_validation_index = data$part != 'test'
+train_and_validation_X <- data[train_and_validation_index,]
+train_and_validation_y = train_and_validation_X$donr
+train_and_validation_X <- subset(train_and_validation_X, select = -c(ID,damt,part) )
+train_and_validation_X$donr <- factor(ifelse(train_and_validation_X$donr==0, "Zero", "One"))
+
+test_index = data$part == 'test'
+test_X <- data[test_index,]
+test_y = test_X$donr
+test_X <- subset(test_X, select = -c(donr,ID,damt,part) )
+#test_X$donr <- factor(ifelse(test_X$donr==0, "Zero", "One")) # no label for test data
+
+set.seed(666)
+my_control <- trainControl(
+  method="cv",
+  number=10,
+  savePredictions="final",
+  classProbs=TRUE,
+  index=createFolds(train_and_validation_y, k = 10, list = TRUE, returnTrain = FALSE),
+  summaryFunction=grossProfitSummary,
+  verboseIter = FALSE
+  )
+
+# super fancy, the caretList does auto-tuning
+model_list <- caretList(
+  donr~., data=train_and_validation_X,
+  trControl=my_control,
+  metric="ROC",
+  methodList=c(#"xgbTree",
+               #"glm"
+               #,"rf",
+               #"ranger",
+               #"knn"
+               #,"adaboost",
+               #'rotationForest',
+               #'wsrf',
+               #'lda',
+               'qda', # package MASS
+               #'rda',
+               'fda', # package earth, mda
+               'hda' # package hda
+               )
+  )
+
+train_and_validation.ensemble_model_preds_proba_donr <- lapply(model_list, predict, newdata=train_and_validation_X, type="prob")
+train_and_validation.ensemble_model_preds_proba_donr <- data.frame(train_and_validation.ensemble_model_preds_proba_donr)
+
+set.seed(666)
+glm_ensemble <- caretStack(
+  model_list,
+  method="hda",
+  metric="ROC",
+  trControl=trainControl(
+    method="cv",
+    number=10,
+    savePredictions="final",
+    classProbs=TRUE,
+    summaryFunction=grossProfitSummary,
+    verboseIter = FALSE
+  )
+)
+
+# set.seed(666)
+# my_control <- trainControl(
+#   method="cv",
+#   number=10,
+#   savePredictions="final",
+#   classProbs=TRUE,
+#   index=createFolds(train_and_validation_y, k = 10, list = TRUE, returnTrain = FALSE),
+#   summaryFunction=grossProfitSummary,
+#   verboseIter = FALSE
+#   )
+# 
+# # super fancy, the caretList does auto-tuning
+# model_list <- caretList(
+#   donr~., data=train_and_validation_X,
+#   trControl=my_control,
+#   metric="ROC",
+#   methodList=c("xgbTree", 
+#                "glm"
+#                #,"rf",
+#                #"ranger", 
+#                #"knn"
+#                #,"adaboost", 
+#                #'rotationForest',
+#                #'wsrf'
+#                )
+#   )
+# 
+# train_and_validation.ensemble_model_preds_proba_donr <- lapply(model_list, predict, newdata=train_and_validation_X, type="prob")
+# train_and_validation.ensemble_model_preds_proba_donr <- data.frame(train_and_validation.ensemble_model_preds_proba_donr)
+# 
+# set.seed(666)
+# glm_ensemble <- caretStack(
+#   model_list,
+#   method="xgbTree",
+#   metric="ROC",
+#   trControl=trainControl(
+#     method="cv",
+#     number=10,
+#     savePredictions="final",
+#     classProbs=TRUE,
+#     summaryFunction=grossProfitSummary,
+#     verboseIter = FALSE
+#   )
+# )
+
+# I really don't know why, but here the predict() function predicts the probability for -not- being a donor, so we have to adapt accordingly.
+train_and_validation.ensemble_model_preds_proba_donr$ensemble.Zero <- predict(glm_ensemble, newdata=train_and_validation_X, type="prob")
+train_and_validation.ensemble_model_preds_proba_donr$ensemble.One = 1 - train_and_validation.ensemble_model_preds_proba_donr$ensemble.Zero
+```
+Now that we enriched our data with the donation probabilities, we will do a sound investigation of the validation set test MSE for different base models and select a few of these to be incorporated in a stacking ensemble.
+```{r Validation regression ensemble}
+# this "chunk" requires the chunk above to run properly, nevertheless some packages are loaded again (bit messy)
+
+# here we go and assign the donation probability to our input data
+train_and_validation_index = data$part != 'test'
+train_and_validation_X <- data[train_and_validation_index,]
+train_and_validation_y = train_and_validation_X$damt
+train_and_validation_X <- subset(train_and_validation_X, select = -c(ID) ) # remove part in next step
+train_and_validation_X$donprob = train_and_validation.ensemble_model_preds_proba_donr$hda.One # requires previous chunk
+
+# reorder so that DAMT is last
+train_and_validation_X = train_and_validation_X[,c(1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,24,22,23)]
+
+# donor only
+train_and_validation_donor_index = train_and_validation_X$donr == 1
+train_and_validation_X = train_and_validation_X[train_and_validation_donor_index,]
+train_and_validation_y = train_and_validation_y[train_and_validation_donor_index]
+
+train_index = train_and_validation_X$part == 'train'
+train_X <- train_and_validation_X[train_index,]
+train_y = train_X$damt
+train_X <- subset(train_X, select = -c(part,donr) )
+
+# training normalisation
+# for (i in names(train_X)[1:length(names(train_X))-1]) # all but last element (response)
+# {
+#   train_X[[i]] <- (train_X[[i]] - mean(train_X[[i]])) / sd(train_X[[i]])
+# }
+
+validation_index = train_and_validation_X$part == 'valid'
+validation_X <- train_and_validation_X[validation_index,]
+validation_y = validation_X$damt
+validation_X <- subset(validation_X, select = -c(part,donr) )
+
+# validation normalisation
+# for (i in names(validation_X)[1:length(names(validation_X))-1]) # all but last element (response)
+# {
+#   validation_X[[i]] <- (validation_X[[i]] - mean(validation_X[[i]])) / sd(validation_X[[i]])
+# }
+
+# Now we train an ensemble stacking on the training data and have a look on the validation MSE
+
+set.seed(666)
+my_control <- trainControl(method="cv", number=10, savePredictions="final", index=createFolds(train_y, k = 10, list = TRUE, returnTrain = FALSE), verboseIter = FALSE)
+
+valid.reg.model_list <- caretList(
+  damt~., data=train_X,
+  trControl=my_control,
+  metric="RMSE",
+  methodList=c("xgbTree" # package xgboost, plyr
+               #,"glm"
+               #,"rf" # package randomForest
+               #,"ranger" # package e1071, ranger, dplyr
+               #,"knn"
+               #,"lasso" # package elasticnet
+               ,"blasso" # package monomvn
+               #,"rpart1SE" # package rpart
+               ,"ridge" # package elasticnet,
+               #,"lars" # package lars
+               
+               # the models below for some reason let the fitting run forever
+               #,"ANFIS" # package frbs runs super long
+               #,'rlm' # package MASS
+               #,'WM' # package frbs
+               #,"cubist" # package Cubist runs super long
+               #,"relaxo" # package relaxo requires centered response
+               #,"FIR.DM" # package frbs runs super long
+               #,"glmnet_h2o" # package h2o requires connection to H2O cluster :-D
+               )
+  )
+
+# predict validation data's donation amount
+valid.ensemble_model_preds_damt <- lapply(valid.reg.model_list, predict, newdata=validation_X, type="raw")
+valid.ensemble_model_preds_damt <- data.frame(valid.ensemble_model_preds_damt)
+
+set.seed(666)
+valid.reg.glm_ensemble <- caretStack(
+  valid.reg.model_list,
+  method="glm",
+  metric="RMSE",
+  trControl=trainControl(
+    method="cv",
+    number=10,
+    savePredictions="final"
+    #,classProbs=TRUE,
+    #summaryFunction=twoClassSummary
+  )
+)
+
+valid.ensemble_model_preds_damt$ensemble <- predict(valid.reg.glm_ensemble, newdata=validation_X, type="raw")
+
+# own correlation matrix
+print("Correlation matrix:")
+res <- cor(valid.ensemble_model_preds_damt)
+round(res, 2)
+
+print("")
+print("Validation set test MSE:")
+for (i in 1:length(names(valid.ensemble_model_preds_damt)))
+{
+  col = names(valid.ensemble_model_preds_damt)[i]
+  mse = mean((validation_y - valid.ensemble_model_preds_damt[col])^2)
+  print(paste("MSE for",col,": ",mse))
+}
+
+# STEP 1 No probs, only positive donors, no DONR, normalised values but DAMT with ensemble base models "xgbTree", "glm", "rf", "ranger", "knn" and stacker "xgbTree"
+# [1] "Correlation matrix:"
+#          xgbTree  glm   rf ranger  knn ensemble
+# xgbTree     1.00 0.89 0.96   0.96 0.84     0.98
+# glm         0.89 1.00 0.89   0.90 0.89     0.93
+# rf          0.96 0.89 1.00   0.99 0.85     0.96
+# ranger      0.96 0.90 0.99   1.00 0.87     0.97
+# knn         0.84 0.89 0.85   0.87 1.00     0.87
+# ensemble    0.98 0.93 0.96   0.97 0.87     1.00
+# [1] ""
+# [1] "Validation set test MSE:"
+# [1] "MSE for xgbTree :  1.51015016064205"
+# [1] "MSE for glm :  1.88272554406346"
+# [1] "MSE for rf :  1.72880361271494"
+# [1] "MSE for ranger :  1.65824747010233"
+# [1] "MSE for knn :  2.19606285297643"
+# [1] "MSE for ensemble :  1.53009912802424"
+
+# STEP 2 No probs, only positive donors, no DONR, no normalisation with ensemble base models "xgbTree", "glm", "rf", "ranger", "knn" and stacker "xgbTree"
+# [1] "Correlation matrix:"
+#          xgbTree  glm   rf ranger  knn ensemble
+# xgbTree     1.00 0.89 0.96   0.96 0.63     0.98
+# glm         0.89 1.00 0.90   0.91 0.59     0.93
+# rf          0.96 0.90 1.00   0.99 0.65     0.97
+# ranger      0.96 0.91 0.99   1.00 0.62     0.97
+# knn         0.63 0.59 0.65   0.62 1.00     0.63
+# ensemble    0.98 0.93 0.97   0.97 0.63     1.00
+# [1] ""
+# [1] "Validation set test MSE:"
+# [1] "MSE for xgbTree :  1.41760016124419"
+# [1] "MSE for glm :  1.86665691926936"
+# [1] "MSE for rf :  1.68266243405517"
+# [1] "MSE for ranger :  1.6176160219653"
+# [1] "MSE for knn :  3.20221456023925"
+# [1] "MSE for ensemble :  1.45839376027398"
+
+# STEP 3 No probs, whole data, no DONR, no normalisation with ensemble base models "xgbTree", "glm", "rf", "ranger", "knn" and stacker "xgbTree"
+# [1] "Correlation matrix:"
+#          xgbTree  glm   rf ranger  knn ensemble
+# xgbTree     1.00 0.89 0.91   0.92 0.17     0.94
+# glm         0.89 1.00 0.81   0.84 0.22     0.85
+# rf          0.91 0.81 1.00   0.98 0.17     0.95
+# ranger      0.92 0.84 0.98   1.00 0.14     0.97
+# knn         0.17 0.22 0.17   0.14 1.00     0.16
+# ensemble    0.94 0.85 0.95   0.97 0.16     1.00
+# [1] "Validation set test MSE:"
+# [1] "MSE for xgbTree :  21.3116583753724"
+# [1] "MSE for glm :  28.149187575882"
+# [1] "MSE for rf :  17.1011475144219"
+# [1] "MSE for ranger :  17.3511862556233"
+# [1] "MSE for knn :  55.1428078772529"
+# [1] "MSE for ensemble :  16.5195574224785"
+
+# STEP 4 best "gross profit" probs, only positive donors, no DONR, no normalisation with ensemble base models "xgbTree", "glm", "rf", "ranger", "knn" and stacker "xgbTree"
+# [1] "Correlation matrix:"
+#          xgbTree  glm   rf ranger  knn ensemble
+# xgbTree     1.00 0.89 0.95   0.96 0.62     0.98
+# glm         0.89 1.00 0.90   0.91 0.59     0.93
+# rf          0.95 0.90 1.00   0.99 0.65     0.96
+# ranger      0.96 0.91 0.99   1.00 0.62     0.97
+# knn         0.62 0.59 0.65   0.62 1.00     0.62
+# ensemble    0.98 0.93 0.96   0.97 0.62     1.00
+# [1] ""
+# [1] "Validation set test MSE:"
+# [1] "MSE for xgbTree :  1.41278838067033"
+# [1] "MSE for glm :  1.85593015560766"
+# [1] "MSE for rf :  1.67548012418418"
+# [1] "MSE for ranger :  1.63292311342565"
+# [1] "MSE for knn :  3.2032526353514"
+# [1] "MSE for ensemble :  1.4739311726175"
+
+# STEP 5 best AUC probs, only positive donors, no DONR, no normalisation with ensemble base models "xgbTree", "glm", "rf", "ranger", "knn" and stacker "xgbTree"
+# [1] "Correlation matrix:"
+#          xgbTree  glm   rf ranger  knn ensemble
+# xgbTree     1.00 0.89 0.95   0.96 0.63     0.98
+# glm         0.89 1.00 0.90   0.91 0.59     0.92
+# rf          0.95 0.90 1.00   0.99 0.66     0.96
+# ranger      0.96 0.91 0.99   1.00 0.62     0.97
+# knn         0.63 0.59 0.66   0.62 1.00     0.62
+# ensemble    0.98 0.92 0.96   0.97 0.62     1.00
+# [1] ""
+# [1] "Validation set test MSE:"
+# [1] "MSE for xgbTree :  1.46020608017856"
+# [1] "MSE for glm :  1.87132283301418"
+# [1] "MSE for rf :  1.69282680239795"
+# [1] "MSE for ranger :  1.62870935139806"
+# [1] "MSE for knn :  3.20229908921267"
+# [1] "MSE for ensemble :  1.47346455969519"
+
+# ASSESSMENT - So far we had XGBoost performing best when ran with best "gross profit" probs, only positive donors, no DONR, no normalisation (STEP 4) - let's use this setup and introduce more base models and a different stacker
+
+# STEP 6 best "gross profit" probs, only positive donors, no DONR, no normalisation with ensemble base models "xgbTree", "glm","rf","ranger","knn","lasso","blasso","rpart1SE","ridge","lars" and stacker "glm"
+# [1] "Correlation matrix:"
+#          xgbTree  glm   rf ranger  knn lasso blasso rpart1SE ridge lars ensemble
+# xgbTree     1.00 0.89 0.95   0.96 0.62  0.88   0.89     0.86  0.89 0.89     0.97
+# glm         0.89 1.00 0.90   0.91 0.59  0.97   1.00     0.78  1.00 0.97     0.96
+# rf          0.95 0.90 1.00   0.99 0.65  0.91   0.90     0.90  0.90 0.91     0.95
+# ranger      0.96 0.91 0.99   1.00 0.62  0.91   0.91     0.89  0.91 0.92     0.97
+# knn         0.62 0.59 0.65   0.62 1.00  0.61   0.60     0.57  0.60 0.61     0.62
+# lasso       0.88 0.97 0.91   0.91 0.61  1.00   0.98     0.82  0.97 1.00     0.92
+# blasso      0.89 1.00 0.90   0.91 0.60  0.98   1.00     0.79  1.00 0.98     0.96
+# rpart1SE    0.86 0.78 0.90   0.89 0.57  0.82   0.79     1.00  0.78 0.82     0.84
+# ridge       0.89 1.00 0.90   0.91 0.60  0.97   1.00     0.78  1.00 0.98     0.96
+# lars        0.89 0.97 0.91   0.92 0.61  1.00   0.98     0.82  0.98 1.00     0.93
+# ensemble    0.97 0.96 0.95   0.97 0.62  0.92   0.96     0.84  0.96 0.93     1.00
+# [1] ""
+# [1] "Validation set test MSE:"
+# [1] "MSE for xgbTree :  1.41278838067033"*
+# [1] "MSE for glm :  1.85593015560766"
+# [1] "MSE for rf :  1.67548012418418"
+# [1] "MSE for ranger :  1.63292311342565"
+# [1] "MSE for knn :  3.2032526353514"
+# [1] "MSE for lasso :  2.1031681087213"
+# [1] "MSE for blasso :  1.85124021951212"*
+# [1] "MSE for rpart1SE :  2.24107460356476"
+# [1] "MSE for ridge :  1.84997822456052"*
+# [1] "MSE for lars :  2.06865888952061"
+# [1] "MSE for ensemble :  1.44372728747626"
+
+# STEP 7 best "gross profit" probs, only positive donors, no DONR, no normalisation with ensemble base models "xgbTree", "blasso","ridge" (top 3) and stacker "glm"
+# [1] "Correlation matrix:"
+#          xgbTree blasso ridge ensemble
+# xgbTree     1.00   0.89  0.89     0.98
+# blasso      0.89   1.00  1.00     0.96
+# ridge       0.89   1.00  1.00     0.96
+# ensemble    0.98   0.96  0.96     1.00
+# [1] ""
+# [1] "Validation set test MSE:"
+# [1] "MSE for xgbTree :  1.41278838067033"
+# [1] "MSE for blasso :  1.84632952243638"
+# [1] "MSE for ridge :  1.84997822456052"
+# [1] "MSE for ensemble :  1.43917358452407"
+
+# Again, our ensemble model couldn't keep up with a base model. Unfortunate that LightGBM is not available yet in caret.
+
+valid.reg.model_list$ridge$bestTune
+```
+Now follow the final, pretty competitive predictions of the donation amount.
+```{r Test regression ensemble}
+# requires chunk 12 and chunk 14
+
+train_and_validation_index = data$part != 'test'
+train_and_validation_X <- data[train_and_validation_index,]
+train_and_validation_y = train_and_validation_X$damt
+train_and_validation_X <- subset(train_and_validation_X, select = -c(ID,donr,part) )
+
+test_index = data$part == 'test'
+test_X <- data[test_index,]
+test_y = test_X$donr
+test_X <- subset(test_X, select = -c(donr,ID,damt,part) )
+#test_X$donr <- factor(ifelse(test_X$donr==0, "Zero", "One")) # no label for test data
+
+# add DONPROB
+train_and_validation_X$donprob = train_and_validation.ensemble_model_preds_proba_donr$hda.One
+test_X$donprob = final.ensemble_model_preds_proba_donr$hda.One
+  
+set.seed(666)
+my_control <- trainControl(method="cv", number=10, savePredictions="final", index=createFolds(train_and_validation_y, k = 10, list = TRUE, returnTrain = FALSE))
+
+test.reg.model_list <- caretList(
+  damt~., data=train_and_validation_X,
+  trControl=my_control,
+  metric="RMSE",
+  methodList=c("xgbTree"
+               ,"blasso" # package monomvn
+               ,"ridge" # package elasticnet,
+               )
+  )
+
+final.ensemble_model_preds_damt <- lapply(test.reg.model_list, predict, newdata=test_X, type="raw")
+final.ensemble_model_preds_damt <- data.frame(final.ensemble_model_preds_damt)
+
+set.seed(666)
+test.reg.glm_ensemble <- caretStack(
+  test.reg.model_list,
+  method="glm",
+  metric="RMSE",
+  trControl=trainControl(
+    method="cv",
+    number=10,
+    savePredictions="final"
+    #,classProbs=TRUE,
+    #summaryFunction=twoClassSummary
+  )
+)
+
+final.ensemble_model_preds_damt$ensemble <- predict(test.reg.glm_ensemble, newdata=test_X, type="raw")
+
+# own correlation matrix
+print("Correlation matrix:")
+res_final <- cor(final.ensemble_model_preds_damt)
+round(res_final, 2)
+# [1] "Correlation matrix:"
+#          xgbTree  glm   rf ranger ensemble
+# xgbTree     1.00 0.98 0.98   0.98     0.99
+# glm         0.98 1.00 0.98   0.98     0.98
+# rf          0.98 0.98 1.00   1.00     1.00
+# ranger      0.98 0.98 1.00   1.00     1.00
+# ensemble    0.99 0.98 1.00   1.00     1.00
+```
+Maximum profit determination for the test set and other calculations
+```{r Best models and metrics}
+# requires previous chunks
+train_and_validation_index = data$part != 'test'
+train_and_validation_X <- data[train_and_validation_index,]
+
+# best predictions according to gross profit from HDA model (15494.832596382)
+best_donation_probs = final.ensemble_model_preds_proba_donr$hda.One
+# best predictions according to MSE from XGBoost model (1.41278838067033)
+best_donation_amounts = final.ensemble_model_preds_damt$xgbTree
+
+test.results = profits_from_donation_proba(best_donation_probs)
+test.results$max_profit_mailings[1] #1616
+test.results$max_profit[1] #13310.28
+test.results$max_profit_threshold[1] # 0.1375833
+test.results$max_profit[1] / length(best_donation_probs)
+# profit per -potential- donor in test set is 6.63 in a 1 in 10 donor setting
+# this translates to 66.30 per donor
+
+
+train_valid.profit = sum(train_and_validation_X$donr * (train_and_validation_X$damt - 2))
+train_valid.profit / dim(train_and_validation_X)[1]
+# profit per -potential- donor in train and validation set is 6.21 in a 1 in 2 donor setting
+# this translates to 12.42 per donor
+
+# a probably not required total profit calculation
+all.total_profit = test.results$max_profit[1] + train_valid.profit # 41746.125
+all.total_profit / dim(data)[1]
+# profit per -potential- donor in all data is 6.31
+
+# the results are pretty good. our predicted donors donate 5.33 times as much as the given ones! ;-)
+
+
+# Now we need to determine the threshold for cutoff in mailing out stuff
+# Oversampling adjustment for calculating number of mailings for test set
+valid_length = dim(data[data$part=="valid",])[1]
+test_length = length(best_donation_probs)
+
+# bug resolved, first we took the number of test mails calculated
+# this should be the number of mails to be sent out with the validation set predictions
+n.mail.valid = profits_from_donation_proba(valid.ensemble_model_preds_proba_donr$hda.One)$max_profit_mailings[1]
+n.mail.valid
+
+tr.rate <- .1 # typical response rate is .1
+vr.rate <- .5 # whereas validation response rate is .5
+adj.test.1 <- (n.mail.valid/valid_length)/(vr.rate/tr.rate) # adjustment for mail yes
+adj.test.0 <- ((valid_length-n.mail.valid)/valid_length)/((1-vr.rate)/(1-tr.rate)) # adjustment for mail no
+adj.test <- adj.test.1/(adj.test.1+adj.test.0) # scale into a proportion
+n.mail.test <- round(test_length*adj.test, 0) # calculate number of mailings for test set
+
+cutoff.test <- sort(best_donation_probs, decreasing=T)[n.mail.test+1] # set cutoff based on n.mail.test
+chat.test <- ifelse(best_donation_probs>cutoff.test, 1, 0) # mail to everyone above the cutoff
+table(chat.test)
+hist(chat.test)
+# chat.test
+#    0    1 
+# 1117  890 
+
+test.profit_after_adjustment = sum(chat.test)*(14.5-2) # USD 11125
+test.profit_after_adjustment
+
+test.profit_after_adjustment / length(chat.test)
+# FINAL adjusted profit per -potential- donor in test set is 5.54 in a 1 in 10 donor setting
+# this translates to 55.40 per donor
+# our FINAL predicted donors donate 4.46 times as much as the given ones! ;-)
+
+yhat.test = best_donation_amounts # previous chunk
+mean(yhat.test) # 3.66
+hist(yhat.test)
+#chat.test # previous chunk
+
+tmp = do.call(rbind.data.frame, Map('c', chat.test, yhat.test))# as.data.frame
+colnames(tmp) = c('chat','yhat')
+tmp_index = tmp$chat == 1
+tmp2 = tmp[tmp_index,]
+tmp2_index = tmp2$yhat <= 2
+tmp3 = tmp2[tmp2_index,] # 182 donors bring no profit
+mean(tmp3$yhat) # 0.00386 donation amount on average
+
+# yet another calculation of expected profit
+test.profit_alternative = sum(chat.test * yhat.test) # 5206.80
+# Prof had 4757.19
+
+```
+Save final results for classification and prediction
+```{r}
+
+
+# DAMT Prediction Calculation
+# model.lasso3 was the best prediction model at Mean Prediction Error of 1.86133
+# Set test data matrix
+#data.test.std$damt <- 0
+#test.matrix <- model.matrix(damt ~ reg1 + reg2 + reg3 + reg4 + home + chld + hinc + genf + avhv + incm + inca + plow #+ npro + tgif + lgif + rgif + tdon + tlag + agif, data.test.std)
+#yhat.test <- predict(model.lasso3, s=bestlam.lasso3, newx=test.matrix)  #test predictions
+
+length(chat.test) # check length = 2007
+length(yhat.test) # check length = 2007
+chat.test[1:10] # check this consists of 0s and 1s
+yhat.test[1:10] # check this consists of plausible predictions of damt
+
+# create combined dataframe and save CSV result
+ip <- data.frame(chat=chat.test, yhat=yhat.test) # data frame with two variables: donation (1/0) and donation amount
+write.csv(ip, file="NDJ.csv", row.names=FALSE) # use your initials for the file name
+
+```
